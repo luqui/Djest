@@ -8,6 +8,7 @@ import Control.Monad.State
 import qualified Control.Monad.Supply as Supply
 import Control.Applicative
 import Control.Arrow (second)
+import System.Environment (getArgs)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Text.Parsec as P
@@ -85,8 +86,24 @@ printType t = Supply.evalSupply (go [] id t) letters
     letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
 
 
+
 parse :: Parser a -> String -> Either P.ParseError a
 parse p = P.parse (p <* P.eof) "<input>"
+
+mainF :: String -> IO ()
+mainF input = do
+    typ <- either (fail.show) return $ parse parseType input
+    go . runSolver $ Map.empty |- typ
+    
+    where
+    go (Nothing:xs) = go xs
+    go (Just x:xs) = print (printExp x) >> getLine >> go xs
+    go [] = return ()
+
+main :: IO ()
+main = do
+    [input] <- getArgs
+    mainF input
 
 infixl 9 :$
 data Exp
@@ -94,6 +111,21 @@ data Exp
     | Exp :$ Exp
     | EVar ExpVar
     deriving (Eq, Ord, Show)
+
+printExp :: Exp -> PP.Doc
+printExp e = Supply.evalSupply (go Map.empty id id e) letters
+    where
+    go names pl pa (ELambda v e) = do
+        name <- Supply.supply
+        body <- go (Map.insert v name names) id id e
+        return . pl $ PP.text "\\" PP.<> PP.text name PP.<> PP.text "." PP.<+> body
+    go names pl pa (f :$ x) = do
+        fp <- go names PP.parens id f
+        xp <- go names PP.parens PP.parens x
+        return . pa $ fp PP.<+> xp
+    go names pl pa (EVar v) = return $ PP.text (names Map.! v)
+    
+    letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
 
 raise :: Int -> Type -> Type
 raise 0 = id
