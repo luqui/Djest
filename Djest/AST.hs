@@ -85,10 +85,10 @@ type Solver = StateT SolverState Logic
 unify :: Type -> Type -> Solver ()
 unify t u = join $ liftM2 go (substMetas t) (substMetas u)
     where
+    go t u | t == u = return ()
     go (TMeta m) u = modify . onMetaSubst $ Map.insert m u
     go t (TMeta m) = modify . onMetaSubst $ Map.insert m t
     go (t :-> u) (t' :-> u') = go t t' >> unify u u'  -- unify to resubstitute any new bindings
-    go t u | t == u = return ()
     go _ _ = mzero
 
 substMetas :: Type -> Solver Type
@@ -122,27 +122,33 @@ infix 1 |-
 (|-) :: Env -> Type -> Solver Exp
 env |- t = do
     t' <- substMetas t
-    try [ rule env t | rule <- rules ]
+    try [ rule env t' | rule <- rules ]
 
 rules :: [Rule]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do
-        trace ("rArrow (" ++ show env ++ ") (" ++ show (t :-> u) ++ ")") $ return ()
+        --trace ("rArrow (" ++ show env ++ ") (" ++ show (t :-> u) ++ ")") $ return ()
         ev <- ExpVar <$> supply
         ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
-        trace ("rForAll (" ++ show env ++ ") (" ++ show (TForAll t) ++ ")") $ return ()
+        --trace ("rForAll (" ++ show env ++ ") (" ++ show (TForAll t) ++ ")") $ return ()
         rigid <- RigidVar <$> supply
         env |- subst (TRigid rigid) t    
     rForAll _ _ = mzero
 
+    rRefine env (TMeta _) = mzero
     rRefine env t = try $ do
-        trace ("rRefine (" ++ show env ++ ") (" ++ show t ++ ")") $ return ()
+        --trace ("rRefine (" ++ show env ++ ") (" ++ show t ++ ")") $ return ()
         (k,vs) <- Map.toList env
         v <- vs
         return $ do
             args <- refine k t
-            foldl (:$) (EVar v) <$> mapM (env |-) args
+            foldl (:$) (EVar v) <$> mapM' (env |-) args
+
+
+mapM' :: (MonadLogic m) => (a -> m b) -> [a] -> m [b]
+mapM' f [] = return []
+mapM' f (x:xs) = f x >>- \a -> mapM' f xs >>- \as -> return (a:as)
