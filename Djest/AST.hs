@@ -7,7 +7,8 @@ import Control.Monad.Logic
 import Control.Monad.State
 import qualified Control.Monad.Supply as Supply
 import Control.Applicative
-import Control.Arrow (second)
+import Control.Arrow (first, second)
+import Data.Tuple (swap)
 import System.Environment (getArgs)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -206,16 +207,29 @@ refine t a = (unify t a >> return []) `interleave` do
         refine (subst (TMeta meta) t) a
     go _ _ = mzero
 
+split :: [a] -> ([a],[a])
+split [] = ([], [])
+split (x:xs) = swap . first (x:) . split $ xs
+
+-- a balanced interleaving try
 try :: (MonadLogic m) => [m a] -> m a
-try = foldr interleave mzero
+try [] = mzero
+try [x] = x
+try xs = try as `interleave` try bs
+    where
+    (as, bs) = split xs
 
 type Rule = Env -> Type -> Solver (Maybe Exp)
 
 infix 1 |-
 (|-) :: Env -> Type -> Solver (Maybe Exp)
-env |- t = return Nothing `mplus` do
+env |- t = do
     t' <- substWhnf' t
     try [ rule env t' | rule <- rules ]
+
+yield :: Solver (Maybe a) -> Solver (Maybe a)
+yield s = return Nothing `mplus` s
+
 
 rules :: [Rule]
 rules = [rArrow, rForAll, rRefine]
@@ -231,7 +245,7 @@ rules = [rArrow, rForAll, rRefine]
     rForAll _ _ = mzero
 
     rRefine env (TMeta _) = mzero
-    rRefine env t = try $ do
+    rRefine env t = yield . try $ do
         (k,vs) <- Map.toList env
         v <- vs
         return $ do
@@ -242,4 +256,4 @@ rules = [rArrow, rForAll, rRefine]
 
 mapM' :: (MonadLogic m) => (a -> m b) -> [a] -> m [b]
 mapM' f [] = return []
-mapM' f (x:xs) = f x >>- \a -> mapM' f xs >>- \as -> return (a:as)
+mapM' f (x:xs) = f x >>- \a -> mapM' f xs >>= \as -> return (a:as)
