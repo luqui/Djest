@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor, RankNTypes #-}
 
 module Djest.AStar (AStar(..), MonadDelay(..), flattenAStar) where
 

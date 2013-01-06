@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving, ConstraintKinds #-}
 
-module Djest.AST where
+module Djest.Solver where
 
 import Prelude hiding (lex)
 import Control.Monad.Logic

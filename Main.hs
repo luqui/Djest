@@ -1,5 +1,5 @@
 module Main where
 
-import qualified Djest.AST
+import qualified Djest.Solver
 
-main = Djest.AST.main
+main = Djest.Solver.main
