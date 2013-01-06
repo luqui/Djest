@@ -1,116 +1,102 @@
-{-# LANGUAGE FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving #-}
 
 module Djest.AST where
 
 import Control.Monad.Logic
 import Control.Monad.State
+import Control.Monad.Supply
 import Control.Applicative
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-data Scope a = Here | Up a
-    deriving (Show, Eq, Ord)
-
-scopeElim :: b -> (a -> b) -> Scope a -> b
-scopeElim h _ Here = h
-scopeElim _ u (Up x) = u x
-
-data Type a
-    = Type a :-> Type a
-    | TForAll (Type (Scope a))
-    | TVar a
-    deriving (Show, Eq, Ord)
-
-data Exp a
-    = ELam (Exp (Scope a))
-    | EApp (Exp a) (Exp a)
-    | EVar a
-    deriving (Show, Eq, Ord)
 
 
 newtype MetaVar = MetaVar Integer
-    deriving (Show, Eq, Ord)
+    deriving (Eq, Ord, Show)
+newtype RigidVar = RigidVar Integer
+    deriving (Eq, Ord, Show)
+newtype ExpVar = ExpVar Integer
+    deriving (Eq, Ord, Show)
 
-type Env a = Set.Set (Type a)
+infixr 9 :->
+data Type 
+    = Type :-> Type
+    | TForAll Type
+    | TVar Int
+    | TMeta MetaVar
+    | TRigid RigidVar
+    deriving (Eq, Ord, Show)
 
-mapEnv :: (Ord a, Ord b) => (a -> b) -> Env a -> Env b
-mapEnv f = (Set.map . fmap) f
+infixl 9 :$
+data Exp
+    = ELambda ExpVar Exp
+    | Exp :$ Exp
+    | EVar ExpVar
+    deriving (Eq, Ord, Show)
 
-data SolverState fv = SolverState {
-        curVar :: Integer,
-        curSubst :: Map.Map MetaVar (Meta fv)
-    }
+raise :: Int -> Type -> Type
+raise 0 = id
+raise n = go 0
+    where
+    go level (t :-> u) = go level t :-> go level u
+    go level (TForAll t) = TForAll (go (level + 1) t)
+    go level (TVar z) 
+        | z < level = TVar z
+        | otherwise = TVar (z+n)
+    go _ x = x
 
-type Meta = Either MetaVar
-
-type Solver fv = StateT (SolverState fv) Logic
-
-alloc :: (MonadState (SolverState fv) m) => m MetaVar
-alloc = do
-    s <- get
-    put $ s { curVar = curVar s + 1 }
-    return . MetaVar $ curVar s
-
-metaCommute :: Scope (Meta fv) -> Meta (Scope fv)
-metaCommute Here = Right Here
-metaCommute (Up (Left meta)) = Left meta
-metaCommute (Up (Right v)) = Right (Up v)
+subst :: Type -> Type -> Type
+subst new = go 0
+    where
+    go level (t :-> u) = go level t :-> go level u
+    go level (TForAll t) = TForAll (go (level + 1) t)
+    go level (TVar z) | z == level = raise level new
+    go _ x = x
 
 
-exitSolver :: Solver (Scope fv) a -> Solver fv a
-exitSolver solver = StateT $ \s0 -> do
-    (a,s) <- runStateT solver undefined
-    return (a, undefined)
+
+type MetaSubst = Map.Map MetaVar Type
+type Env = Map.Map Type [ExpVar]
+
+type Solver = SupplyT Integer (StateT MetaSubst Logic)
+
+
+runSolver :: Solver a -> [a]
+runSolver s = observeAll (evalStateT (evalSupplyT s [0..]) Map.empty)
+
+instantiate :: Type -> Solver Type
+instantiate (t :-> u) = (t :->) <$> instantiate u
+instantiate (TForAll t) = do
+    meta <- MetaVar <$> supply
+    instantiate $ subst (TMeta meta) t
+instantiate x = return x
+
+refine :: Type -> Type -> Maybe [Type]
+refine t a | t == a = Just []
+refine (t :-> u) a = (t:) <$> refine u a
+refine _ _ = Nothing
+
+type Rule = Env -> Type -> Solver Exp
 
 infix 1 |-
-(|-) :: forall fv. (Ord fv) => Env (Meta fv) -> Type (Meta fv) -> Solver fv ()
-env |- t  | t `Set.member` env = return ()
-env |- a :-> b   = Set.insert a env |- b
-env |- TForAll t = exitSolver $ (mapEnv.fmap) Up env |- fmap metaCommute t
-env |- TVar x    = mzero
+(|-) :: Env -> Type -> Solver Exp
+env |- t = msum [ rule env t | rule <- rules ]
 
+rules :: [Rule]
+rules = [rArrow, rForAll, rRefine]
+    where
+    rArrow env (t :-> u) = do
+        ev <- ExpVar <$> supply
+        ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
+    rArrow _ _ = mzero
 
-instance Functor Scope where
-    fmap f Here = Here
-    fmap f (Up x) = Up (f x)
+    rForAll env (TForAll t) = do
+        rigid <- RigidVar <$> supply
+        env |- subst (TRigid rigid) t    
+    rForAll _ _ = mzero
 
-instance Applicative Scope where
-    pure = return
-    (<*>) = ap
-
-instance Monad Scope where
-    return = Up
-    Here >>= f = Here
-    Up x >>= f = f x
-
-instance Functor Type where
-    fmap f (dom :-> cod) = fmap f dom :-> fmap f cod
-    fmap f (TForAll t) = TForAll ((fmap.fmap) f t)
-    fmap f (TVar a) = TVar (f a)
-
-instance Applicative Type where
-    pure = return
-    (<*>) = ap
-
-instance Monad Type where
-    return = TVar
-
-    (dom :-> cod) >>= f = (dom >>= f) :-> (cod >>= f)    
-    TForAll m >>= f = TForAll $ m >>= scopeElim (return Here) (fmap Up . f)
-    TVar x >>= f = f x
-
-instance Functor Exp where
-    fmap f (ELam e) = ELam ((fmap.fmap) f e)
-    fmap f (EApp a b) = EApp (fmap f a) (fmap f b)
-    fmap f (EVar x) = EVar (f x)
-
-instance Applicative Exp where
-    pure = return
-    (<*>) = ap
-
-instance Monad Exp where
-    return = EVar
-
-    ELam m >>= f = ELam $ m >>= scopeElim (return Here) (fmap Up . f)
-    EApp a b >>= f = EApp (a >>= f) (b >>= f)
-    EVar x >>= f = f x
+    rRefine env t = msum $ do
+        (k,vs) <- Map.toList env
+        v <- vs
+        Just args <- return $ refine k t
+        return $ foldl (:$) (EVar v) <$> mapM (env |-) args
