@@ -147,13 +147,14 @@ subst new = go 0
     go _ x = x
 
 
-substMeta :: MetaSubst -> Type -> Type
-substMeta m = go 0
-    where
-    go level (t :-> u) = go level t :-> go level u
-    go level (TForAll t) = TForAll (go (level + 1) t)
-    go level (TMeta n) | Just t <- Map.lookup n m = raise level t
-    go _ x = x
+substWhnf :: MetaSubst -> Type -> Type
+substWhnf m (TMeta n) | Just t <- Map.lookup n m = t
+substWhnf m t = t
+
+substWhnf' :: Type -> Solver Type
+substWhnf' t = do
+    s <- gets metaSubst
+    return $ substWhnf s t
 
 
 data SolverState = SolverState {
@@ -176,18 +177,13 @@ type Env = Map.Map Type [ExpVar]
 type Solver = StateT SolverState Logic
 
 unify :: Type -> Type -> Solver ()
-unify t u = join $ liftM2 go (substMetas t) (substMetas u)
+unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     where
     go t u | t == u = return ()
     go (TMeta m) u = modify . onMetaSubst $ Map.insert m u
     go t (TMeta m) = modify . onMetaSubst $ Map.insert m t
-    go (t :-> u) (t' :-> u') = go t t' >> unify u u'  -- unify to resubstitute any new bindings
+    go (t :-> u) (t' :-> u') = unify t t' >> unify u u'
     go _ _ = mzero
-
-substMetas :: Type -> Solver Type
-substMetas t = do
-    s <- gets metaSubst
-    return $ substMeta s t
 
 runSolver :: Solver a -> [a]
 runSolver s = observeAll (evalStateT s (SolverState Map.empty 0))
@@ -200,11 +196,15 @@ instantiate (TForAll t) = do
 instantiate x = return x
 
 refine :: Type -> Type -> Solver [Type]
-refine (t :-> u) a = (t:) <$> refine u a
-refine (TForAll t) a = do
-    meta <- MetaVar <$> supply
-    refine (subst (TMeta meta) t) a
-refine t a = unify t a >> return []
+refine t a = (unify t a >> return []) `interleave` do
+        t' <- substWhnf' t
+        go t' a
+    where
+    go (t :-> u) a = (t:) <$> refine u a
+    go (TForAll t) a = do
+        meta <- MetaVar <$> supply
+        refine (subst (TMeta meta) t) a
+    go _ _ = mzero
 
 try :: (MonadLogic m) => [m a] -> m a
 try = foldr interleave mzero
@@ -214,7 +214,7 @@ type Rule = Env -> Type -> Solver (Maybe Exp)
 infix 1 |-
 (|-) :: Env -> Type -> Solver (Maybe Exp)
 env |- t = return Nothing `mplus` do
-    t' <- substMetas t
+    t' <- substWhnf' t
     try [ rule env t' | rule <- rules ]
 
 rules :: [Rule]
