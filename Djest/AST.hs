@@ -116,11 +116,11 @@ refine t a = unify t a >> return []
 try :: (MonadLogic m) => [m a] -> m a
 try = foldr interleave mzero
 
-type Rule = Env -> Type -> Solver Exp
+type Rule = Env -> Type -> Solver (Maybe Exp)
 
 infix 1 |-
-(|-) :: Env -> Type -> Solver Exp
-env |- t = do
+(|-) :: Env -> Type -> Solver (Maybe Exp)
+env |- t = return Nothing `mplus` do
     t' <- substMetas t
     try [ rule env t' | rule <- rules ]
 
@@ -130,7 +130,7 @@ rules = [rArrow, rForAll, rRefine]
     rArrow env (t :-> u) = do
         --trace ("rArrow (" ++ show env ++ ") (" ++ show (t :-> u) ++ ")") $ return ()
         ev <- ExpVar <$> supply
-        ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
+        fmap (ELambda ev) <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
@@ -146,7 +146,8 @@ rules = [rArrow, rForAll, rRefine]
         v <- vs
         return $ do
             args <- refine k t
-            foldl (:$) (EVar v) <$> mapM' (env |-) args
+            proofs <- mapM' (env |-) args
+            return $ foldl (:$) (EVar v) <$> sequence proofs
 
 
 mapM' :: (MonadLogic m) => (a -> m b) -> [a] -> m [b]
