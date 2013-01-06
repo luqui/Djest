@@ -250,9 +250,18 @@ rules = [rArrow, rForAll, rRefine]
         v <- vs
         return $ do
             args <- refine k t
-            proofs <- mapM' (env |-) args
-            return $ foldl (:$) (EVar v) <$> sequence proofs
+            proofs <- validProduct $ map (env |-) args
+            return $ foldl (:$) (EVar v) <$> proofs
 
+validProduct :: [Solver (Maybe a)] -> Solver (Maybe [a])
+validProduct [] = return (Just [])
+validProduct (m:ms) = do
+    spl <- msplit m
+    case spl of
+        Nothing -> mzero
+        Just (Nothing, rest) -> yield $ validProduct (rest:ms)
+        Just (Just a, rest) -> (fmap.fmap) (a:) (validProduct ms) `interleave` validProduct (rest:ms)
+        
 
 mapM' :: (MonadLogic m) => (a -> m b) -> [a] -> m [b]
 mapM' f [] = return []
