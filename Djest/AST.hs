@@ -7,7 +7,6 @@ import Control.Monad.State
 import Control.Applicative
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Debug.Trace
 
 
 
@@ -128,20 +127,17 @@ rules :: [Rule]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do
-        --trace ("rArrow (" ++ show env ++ ") (" ++ show (t :-> u) ++ ")") $ return ()
         ev <- ExpVar <$> supply
         fmap (ELambda ev) <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
-        --trace ("rForAll (" ++ show env ++ ") (" ++ show (TForAll t) ++ ")") $ return ()
         rigid <- RigidVar <$> supply
         env |- subst (TRigid rigid) t    
     rForAll _ _ = mzero
 
     rRefine env (TMeta _) = mzero
     rRefine env t = try $ do
-        --trace ("rRefine (" ++ show env ++ ") (" ++ show t ++ ")") $ return ()
         (k,vs) <- Map.toList env
         v <- vs
         return $ do
