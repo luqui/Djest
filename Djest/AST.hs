@@ -2,11 +2,14 @@
 
 module Djest.AST where
 
+import Prelude hiding (lex)
 import Control.Monad.Logic
 import Control.Monad.State
 import Control.Applicative
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Text.Parsec as P
+import qualified Text.Parsec.Token as P
 
 
 
@@ -25,6 +28,41 @@ data Type
     | TMeta MetaVar
     | TRigid RigidVar
     deriving (Eq, Ord, Show)
+
+type Parser = P.Parsec String ()
+
+parseType :: Parser Type
+parseType = top Map.empty
+    where
+    lex = P.makeTokenParser $ P.LanguageDef {
+        P.commentStart = "{-",
+        P.commentEnd = "-}",
+        P.commentLine = "--",
+        P.nestedComments = True,
+        P.identStart = P.letter,
+        P.identLetter = P.alphaNum,
+        P.opStart = mzero,
+        P.opLetter = mzero,
+        P.reservedNames = ["forall"],
+        P.reservedOpNames = [],
+        P.caseSensitive = True
+    }
+    
+    top m = foldr1 (:->) <$> P.sepBy1 (atom m) (P.symbol lex "->")
+    atom m = P.choice [ 
+        P.reserved lex "forall" *> forAllVars m,
+        P.identifier lex >>= \name -> case Map.lookup name m of
+                                         Nothing -> fail $ "Type variable not in scope: " ++ name
+                                         Just n -> return $ TVar n,
+        P.parens lex (top m)
+        ]
+    forAllVars m = P.choice [ 
+        P.dot lex *> top m,
+        P.identifier lex >>= \name -> TForAll <$> forAllVars (Map.insert name 0 . Map.map succ $ m)
+        ]
+
+parse :: Parser a -> String -> Either P.ParseError a
+parse p = P.parse (p <* P.eof) "<input>"
 
 infixl 9 :$
 data Exp
