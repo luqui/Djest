@@ -1,10 +1,12 @@
-{-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving, ConstraintKinds #-}
 
 module Djest.AST where
 
 import Prelude hiding (lex)
 import Control.Monad.Logic
 import Control.Monad.State
+import Djest.MonadDelay
+import Djest.AStar
 import qualified Control.Monad.Supply as Supply
 import Control.Applicative
 import Control.Arrow (first, second)
@@ -101,12 +103,10 @@ parse p = P.parse (p <* P.eof) "<input>"
 mainF :: String -> IO ()
 mainF input = do
     typ <- either (fail.show) return $ parse parseType input
-    go . runSolver $ Map.empty |- typ
+    mapM_ showLine . runSolver $ Map.empty |- typ
     
     where
-    go (Nothing:xs) = go xs
-    go (Just x:xs) = print (printExp x) >> getLine >> go xs
-    go [] = return ()
+    showLine x = print (printExp x) >> getLine >> return ()
 
 main :: IO ()
 main = do
@@ -161,7 +161,7 @@ substWhnf :: MetaSubst -> Type -> Type
 substWhnf m (TMeta n) | Just t <- Map.lookup n m = t
 substWhnf m t = t
 
-substWhnf' :: Type -> Solver Type
+substWhnf' :: (MonadState SolverState m) => Type -> m Type
 substWhnf' t = do
     s <- gets metaSubst
     return $ substWhnf s t
@@ -184,9 +184,9 @@ onMetaSubst f s = s { metaSubst = f (metaSubst s) }
 type MetaSubst = Map.Map MetaVar Type
 type Env = Map.Map Type [ExpVar]
 
-type Solver = StateT SolverState Logic
+type MonadSolver m = (Functor m, MonadState SolverState m, MonadDelay m)
 
-unify :: Type -> Type -> Solver ()
+unify :: (MonadState SolverState m, MonadPlus m) => Type -> Type -> m ()
 unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     where
     go t u | t == u = return ()
@@ -196,11 +196,11 @@ unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     go (t :% u) (t' :% u') = unify t t' >> unify u u'
     go _ _ = mzero
 
-runSolver :: Solver a -> [a]
-runSolver s = observeAll (evalStateT s (SolverState Map.empty 0))
+runSolver :: StateT SolverState AStar a -> [a]
+runSolver s = flattenAStar (evalStateT s (SolverState Map.empty 0))
 
-refine :: Type -> Type -> Solver [Type]
-refine t a = (unify t a >> return []) `interleave` do
+refine :: (Functor m, MonadState SolverState m, MonadPlus m) => Type -> Type -> m [Type]
+refine t a = (unify t a >> return []) `mplus` do
         t' <- substWhnf' t
         go t' a
     where
@@ -214,32 +214,20 @@ split :: [a] -> ([a],[a])
 split [] = ([], [])
 split (x:xs) = swap . first (x:) . split $ xs
 
--- a balanced interleaving try
-try :: (MonadLogic m) => [m a] -> m a
-try [] = mzero
-try [x] = x
-try xs = try as `interleave` try bs
-    where
-    (as, bs) = split xs
-
-type Rule = Env -> Type -> Solver (Maybe Exp)
+type Rule m = Env -> Type -> m Exp
 
 infix 1 |-
-(|-) :: Env -> Type -> Solver (Maybe Exp)
+(|-) :: (MonadSolver m) => Env -> Type -> m Exp
 env |- t = do
     t' <- substWhnf' t
-    try [ rule env t' | rule <- rules ]
+    msum [ rule env t' | rule <- rules ]
 
-yield :: Solver (Maybe a) -> Solver (Maybe a)
-yield s = return Nothing `mplus` s
-
-
-rules :: [Rule]
+rules :: (MonadSolver m) => [Rule m]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do
         ev <- ExpVar <$> supply
-        fmap (ELambda ev) <$> (Map.insertWith (++) t [ev] env |- u)
+        ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
@@ -248,24 +236,10 @@ rules = [rArrow, rForAll, rRefine]
     rForAll _ _ = mzero
 
     rRefine env (TMeta _) = mzero
-    rRefine env t = yield . try $ do
+    rRefine env t = delay . msum $ do
         (k,vs) <- Map.toList env
         v <- vs
         return $ do
             args <- refine k t
-            proofs <- validProduct $ map (env |-) args
-            return $ foldl (:$) (EVar v) <$> proofs
-
-validProduct :: [Solver (Maybe a)] -> Solver (Maybe [a])
-validProduct [] = return (Just [])
-validProduct (m:ms) = do
-    spl <- msplit m
-    case spl of
-        Nothing -> mzero
-        Just (Nothing, rest) -> yield $ validProduct (rest:ms)
-        Just (Just a, rest) -> (fmap.fmap) (a:) (validProduct ms) `interleave` validProduct (rest:ms)
-        
-
-mapM' :: (MonadLogic m) => (a -> m b) -> [a] -> m [b]
-mapM' f [] = return []
-mapM' f (x:xs) = f x >>- \a -> mapM' f xs >>= \as -> return (a:as)
+            proofs <- mapM (env |-) args
+            return $ foldl (:$) (EVar v) proofs
