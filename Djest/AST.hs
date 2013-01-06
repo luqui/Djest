@@ -4,10 +4,10 @@ module Djest.AST where
 
 import Control.Monad.Logic
 import Control.Monad.State
-import Control.Monad.Supply
 import Control.Applicative
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Debug.Trace
 
 
 
@@ -54,15 +54,50 @@ subst new = go 0
     go _ x = x
 
 
+substMeta :: MetaSubst -> Type -> Type
+substMeta m = go 0
+    where
+    go level (t :-> u) = go level t :-> go level u
+    go level (TForAll t) = TForAll (go (level + 1) t)
+    go level (TMeta n) | Just t <- Map.lookup n m = raise level t
+    go _ x = x
+
+
+data SolverState = SolverState {
+        metaSubst :: MetaSubst,
+        supplyCounter :: Integer
+    }
+
+supply :: (MonadState SolverState m) => m Integer
+supply = do
+    s <- get
+    put $ s { supplyCounter = supplyCounter s + 1 }
+    return $ supplyCounter s
+
+onMetaSubst :: (MetaSubst -> MetaSubst) -> SolverState -> SolverState
+onMetaSubst f s = s { metaSubst = f (metaSubst s) }
 
 type MetaSubst = Map.Map MetaVar Type
 type Env = Map.Map Type [ExpVar]
 
-type Solver = SupplyT Integer (StateT MetaSubst Logic)
+type Solver = StateT SolverState Logic
 
+unify :: Type -> Type -> Solver ()
+unify t u = join $ liftM2 go (substMetas t) (substMetas u)
+    where
+    go (TMeta m) u = modify . onMetaSubst $ Map.insert m u
+    go t (TMeta m) = modify . onMetaSubst $ Map.insert m t
+    go (t :-> u) (t' :-> u') = go t t' >> unify u u'  -- unify to resubstitute any new bindings
+    go t u | t == u = return ()
+    go _ _ = mzero
+
+substMetas :: Type -> Solver Type
+substMetas t = do
+    s <- gets metaSubst
+    return $ substMeta s t
 
 runSolver :: Solver a -> [a]
-runSolver s = observeAll (evalStateT (evalSupplyT s [0..]) Map.empty)
+runSolver s = observeAll (evalStateT s (SolverState Map.empty 0))
 
 instantiate :: Type -> Solver Type
 instantiate (t :-> u) = (t :->) <$> instantiate u
@@ -71,32 +106,43 @@ instantiate (TForAll t) = do
     instantiate $ subst (TMeta meta) t
 instantiate x = return x
 
-refine :: Type -> Type -> Maybe [Type]
-refine t a | t == a = Just []
+refine :: Type -> Type -> Solver [Type]
 refine (t :-> u) a = (t:) <$> refine u a
-refine _ _ = Nothing
+refine (TForAll t) a = do
+    meta <- MetaVar <$> supply
+    refine (subst (TMeta meta) t) a
+refine t a = unify t a >> return []
+
+try :: (MonadLogic m) => [m a] -> m a
+try = foldr interleave mzero
 
 type Rule = Env -> Type -> Solver Exp
 
 infix 1 |-
 (|-) :: Env -> Type -> Solver Exp
-env |- t = msum [ rule env t | rule <- rules ]
+env |- t = do
+    t' <- substMetas t
+    try [ rule env t | rule <- rules ]
 
 rules :: [Rule]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do
+        trace ("rArrow (" ++ show env ++ ") (" ++ show (t :-> u) ++ ")") $ return ()
         ev <- ExpVar <$> supply
         ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
+        trace ("rForAll (" ++ show env ++ ") (" ++ show (TForAll t) ++ ")") $ return ()
         rigid <- RigidVar <$> supply
         env |- subst (TRigid rigid) t    
     rForAll _ _ = mzero
 
-    rRefine env t = msum $ do
+    rRefine env t = try $ do
+        trace ("rRefine (" ++ show env ++ ") (" ++ show t ++ ")") $ return ()
         (k,vs) <- Map.toList env
         v <- vs
-        Just args <- return $ refine k t
-        return $ foldl (:$) (EVar v) <$> mapM (env |-) args
+        return $ do
+            args <- refine k t
+            foldl (:$) (EVar v) <$> mapM (env |-) args
