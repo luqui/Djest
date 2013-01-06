@@ -26,8 +26,10 @@ newtype ExpVar = ExpVar Integer
     deriving (Eq, Ord, Show)
 
 infixr 9 :->
+infixl 9 :%
 data Type 
     = Type :-> Type
+    | Type :% Type
     | TForAll Type
     | TVar Int
     | TMeta MetaVar
@@ -53,7 +55,8 @@ parseType = top Map.empty
         P.caseSensitive = True
     }
     
-    top m = foldr1 (:->) <$> P.sepBy1 (atom m) (P.symbol lex "->")
+    top m = foldr1 (:->) <$> P.sepBy1 (app m) (P.symbol lex "->")
+    app m = foldl1 (:%) <$> P.many1 (atom m)
     atom m = P.choice [ 
         P.reserved lex "forall" *> forAllVars m,
         P.identifier lex >>= \name -> case Map.lookup name m of
@@ -67,19 +70,23 @@ parseType = top Map.empty
         ]
 
 printType :: Type -> PP.Doc
-printType t = Supply.evalSupply (go [] id t) letters
+printType t = Supply.evalSupply (go [] id id t) letters
     where
-    go names p (t :-> u) = do
-        tp <- go names PP.parens t
-        up <- go names id u
-        return . p $ tp PP.<+> PP.text "->" PP.<+> up
-    go names p t@(TForAll _) = do
+    go names pr pa (t :-> u) = do
+        tp <- go names PP.parens id t
+        up <- go names id id u
+        return . pr $ tp PP.<+> PP.text "->" PP.<+> up
+    go names pr pa (t :% u) = do
+        tp <- go names PP.parens id t
+        up <- go names PP.parens PP.parens u
+        return . pa $ tp PP.<+> PP.text "->" PP.<+> up
+    go names pr pa t@(TForAll _) = do
         (t', bound) <- foralls t
-        rest <- go (reverse bound ++ names) id t'
-        return . p $ PP.text "forall" PP.<+> PP.hsep (map PP.text bound) PP.<> PP.text "." PP.<+> rest
-    go names p (TVar z) = return $ PP.text (names !! z)
-    go names p (TMeta z) = return $ PP.text ("?" ++ show z)
-    go names p (TRigid z) = return $ PP.text ("!" ++ show z)
+        rest <- go (reverse bound ++ names) id id t'
+        return . pr $ PP.text "forall" PP.<+> PP.hsep (map PP.text bound) PP.<> PP.text "." PP.<+> rest
+    go names pr pa (TVar z) = return $ PP.text (names !! z)
+    go names pr pa (TMeta z) = return $ PP.text ("?" ++ show z)
+    go names pr pa (TRigid z) = return $ PP.text ("!" ++ show z)
 
     foralls (TForAll t) = liftM2 (second . (:)) Supply.supply (foralls t)
     foralls x = return (x, [])
@@ -133,6 +140,7 @@ raise 0 = id
 raise n = go 0
     where
     go level (t :-> u) = go level t :-> go level u
+    go level (t :% u) = go level t :% go level u
     go level (TForAll t) = TForAll (go (level + 1) t)
     go level (TVar z) 
         | z < level = TVar z
@@ -143,6 +151,7 @@ subst :: Type -> Type -> Type
 subst new = go 0
     where
     go level (t :-> u) = go level t :-> go level u
+    go level (t :% u) = go level t :% go level u
     go level (TForAll t) = TForAll (go (level + 1) t)
     go level (TVar z) | z == level = raise level new
     go _ x = x
@@ -184,17 +193,11 @@ unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     go (TMeta m) u = modify . onMetaSubst $ Map.insert m u
     go t (TMeta m) = modify . onMetaSubst $ Map.insert m t
     go (t :-> u) (t' :-> u') = unify t t' >> unify u u'
+    go (t :% u) (t' :% u') = unify t t' >> unify u u'
     go _ _ = mzero
 
 runSolver :: Solver a -> [a]
 runSolver s = observeAll (evalStateT s (SolverState Map.empty 0))
-
-instantiate :: Type -> Solver Type
-instantiate (t :-> u) = (t :->) <$> instantiate u
-instantiate (TForAll t) = do
-    meta <- MetaVar <$> supply
-    instantiate $ subst (TMeta meta) t
-instantiate x = return x
 
 refine :: Type -> Type -> Solver [Type]
 refine t a = (unify t a >> return []) `interleave` do
