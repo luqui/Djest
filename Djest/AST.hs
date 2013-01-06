@@ -199,13 +199,13 @@ unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
 runSolver :: StateT SolverState AStar a -> [a]
 runSolver s = flattenAStar (evalStateT s (SolverState Map.empty 0))
 
-refine :: (Functor m, MonadState SolverState m, MonadPlus m) => Type -> Type -> m [Type]
+refine :: (MonadSolver m) => Type -> Type -> m [Type]
 refine t a = (unify t a >> return []) `mplus` do
         t' <- substWhnf' t
         go t' a
     where
     go (t :-> u) a = (t:) <$> refine u a
-    go (TForAll t) a = do
+    go (TForAll t) a = delay $ do -- delay because instantiating a variable can be costly
         meta <- MetaVar <$> supply
         refine (subst (TMeta meta) t) a
     go _ _ = mzero
