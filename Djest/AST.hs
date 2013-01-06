@@ -5,11 +5,14 @@ module Djest.AST where
 import Prelude hiding (lex)
 import Control.Monad.Logic
 import Control.Monad.State
+import qualified Control.Monad.Supply as Supply
 import Control.Applicative
+import Control.Arrow (second)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Text.Parsec as P
 import qualified Text.Parsec.Token as P
+import qualified Text.PrettyPrint as PP
 
 
 
@@ -60,6 +63,27 @@ parseType = top Map.empty
         P.dot lex *> top m,
         P.identifier lex >>= \name -> TForAll <$> forAllVars (Map.insert name 0 . Map.map succ $ m)
         ]
+
+printType :: Type -> PP.Doc
+printType t = Supply.evalSupply (go [] id t) letters
+    where
+    go names p (t :-> u) = do
+        tp <- go names PP.parens t
+        up <- go names id u
+        return . p $ tp PP.<+> PP.text "->" PP.<+> up
+    go names p t@(TForAll _) = do
+        (t', bound) <- foralls t
+        rest <- go (reverse bound ++ names) id t'
+        return . p $ PP.text "forall" PP.<+> PP.hsep (map PP.text bound) PP.<> PP.text "." PP.<+> rest
+    go names p (TVar z) = return $ PP.text (names !! z)
+    go names p (TMeta z) = return $ PP.text ("?" ++ show z)
+    go names p (TRigid z) = return $ PP.text ("!" ++ show z)
+
+    foralls (TForAll t) = liftM2 (second . (:)) Supply.supply (foralls t)
+    foralls x = return (x, [])
+
+    letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
+
 
 parse :: Parser a -> String -> Either P.ParseError a
 parse p = P.parse (p <* P.eof) "<input>"
