@@ -2,9 +2,9 @@
 
 module Djest.AStar (AStar(..), MonadDelay(..), flattenAStar) where
 
+import Control.Monad.Logic
 import Data.Monoid
 import Control.Monad
-import Control.Monad.State
 import Control.Applicative
 import Djest.MonadDelay
 
@@ -33,12 +33,11 @@ instance MonadDelay AStar where
 
 
 mzip :: (Monoid m) => [m] -> [m] -> [m]
-mzip xs ys = (x' `mappend` y') : mzip xs' ys'
+mzip xs ys = (x' `mappend` y') : xs' ys'
     where
     (x',xs') = case xs of
-                    [] -> (mempty, [])
-                    (x:xs) -> (x, xs)
+                    [] -> (mempty, id)
+                    (x:xs) -> (x, mzip xs)
     (y',ys') = case ys of
                     [] -> (mempty, [])
                     (y:ys) -> (y, ys)
-
