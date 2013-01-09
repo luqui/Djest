@@ -1,6 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables, DeriveFunctor #-}
 
-module Djest.Compiler where
+module Djest.Compiler 
+    (lambda, app, var, compile) 
+where
 
 import Control.Applicative
 import GHC.Prim (Any)
@@ -71,8 +73,9 @@ ignore = go id
     go f 0 = unsafeCoerce f const
     go f n = go (unsafeCoerce ((.).f)) (n-1)
 
-compile :: forall a b. (Ord a, Show a) => Exp a -> Value
-compile = go [] . withFreeVars
+{-# NOINLINE compile #-}
+compile :: forall a b. (Ord a, Show a) => Exp a -> b
+compile = unsafeCoerce . go [] . withFreeVars
     where
     go args exp | trace ("go " ++ show args ++ " $ " ++ show exp) False = undefined
     go args exp = let Ann _ x = unroll exp in go' args x
