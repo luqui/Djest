@@ -3,10 +3,8 @@
 module Djest.Solver where
 
 import Prelude hiding (lex)
-import Control.Monad.Logic
 import Control.Monad.State
-import Djest.MonadDelay
-import Djest.AStar
+import Control.Monad.Stream
 import qualified Control.Monad.Supply as Supply
 import Control.Applicative
 import Control.Arrow (first, second)
@@ -186,7 +184,10 @@ onMetaSubst f s = s { metaSubst = f (metaSubst s) }
 type MetaSubst = Map.Map MetaVar Type
 type Env = Map.Map Type [ExpVar]
 
-type MonadSolver m = (Functor m, MonadState SolverState m, MonadDelay m)
+type Solver = StateT SolverState Stream
+
+delay :: Solver a -> Solver a
+delay m = StateT $ suspended . runStateT m
 
 unify :: (MonadState SolverState m, MonadPlus m) => Type -> Type -> m ()
 unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
@@ -198,10 +199,10 @@ unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     go (t :% u) (t' :% u') = unify t t' >> unify u u'
     go _ _ = mzero
 
-runSolver :: StateT SolverState AStar a -> [a]
-runSolver s = flattenAStar (evalStateT s (SolverState Map.empty 0))
+runSolver :: Solver a -> [a]
+runSolver s = toList (evalStateT s (SolverState Map.empty 0))
 
-refine :: (MonadSolver m) => Type -> Type -> m [Type]
+refine :: Type -> Type -> Solver [Type]
 refine t a = (unify t a >> return []) `mplus` do
         t' <- substWhnf' t
         go t' a
@@ -216,15 +217,15 @@ split :: [a] -> ([a],[a])
 split [] = ([], [])
 split (x:xs) = swap . first (x:) . split $ xs
 
-type Rule m = Env -> Type -> m Exp
+type Rule = Env -> Type -> Solver Exp
 
 infix 1 |-
-(|-) :: (MonadSolver m) => Env -> Type -> m Exp
+(|-) :: Env -> Type -> Solver Exp
 env |- t = do
     t' <- substWhnf' t
     msum [ rule env t' | rule <- rules ]
 
-rules :: (MonadSolver m) => [Rule m]
+rules :: [Rule]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do

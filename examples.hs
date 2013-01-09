@@ -52,3 +52,5 @@ predChurch = adapt f
                     ]
     adapt :: (Church -> Church) -> Integer -> Integer
     adapt f x = fromChurch (f (toChurch x))
+
+main = print $ predChurch 100
