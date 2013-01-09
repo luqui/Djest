@@ -1,5 +1,5 @@
-This is Djest, my work-in-progress entry to the Jan 2013 PLT Games competition,
-[Testing The Waters](http://www.pltgames.com/competition/2013/1).  Djest is a
+This is Djesture, my work-in-progress entry to the Jan 2013 PLT Games competition,
+[Testing The Waters](http://www.pltgames.com/competition/2013/1).  Djesture is a
 purely functional, statically typed language with syntax and semantics similar
 to Haskell.  DJest has built-in automated testing support, but with an extra
 perk: you don't need to write the code you are testing.
@@ -9,9 +9,9 @@ perk: you don't need to write the code you are testing.
     succ 1 = 2
     succ 10 = 11
 
-This is enough to have Djest deduce that `succ x = x + 1`.
+This is enough to have Djesture deduce that `succ x = x + 1`.
 
-Djest uses a [Djinn](http://lambda-the-ultimate.org/node/1178)-like satisfier
+Djesture uses a [Djinn](http://lambda-the-ultimate.org/node/1178)-like satisfier
 which searches for functions of a given type.  The generated functions are then
 tested with the test suite until one that passes all the tests is found, at
 which point that function is taken as its definition.  If it uses the wrong
@@ -19,7 +19,7 @@ function, then clearly your test suite was not comprehensive!
 
 Generated functions are tested in roughly increasing order of complexity, so
 simpler functions are used in preference to more complex ones.  This is what
-allows Djest to find `succ x = x + 1` instead of
+allows Djesture to find `succ x = x + 1` instead of
 
     succ x = case x of
                  0 -> 1
