@@ -39,9 +39,8 @@ data Type
     deriving (Eq, Ord, Show)
 
 type Parser = P.Parsec String ()
-
-parseType :: Parser Type
-parseType = top Map.empty
+typeParser :: Parser Type
+typeParser = top Map.empty
     where
     lex = P.makeTokenParser $ P.LanguageDef {
         P.commentStart = "{-",
@@ -100,9 +99,12 @@ printType t = Supply.evalSupply (go [] id id t) letters
 parse :: Parser a -> String -> Either P.ParseError a
 parse p = P.parse (p <* P.eof) "<input>"
 
+parseType :: String -> Either P.ParseError Type
+parseType = parse typeParser
+
 mainF :: String -> IO ()
 mainF input = do
-    typ <- either (fail.show) return $ parse parseType input
+    typ <- either (fail.show) return $ parse typeParser input
     mapM_ showLine . runSolver $ Map.empty |- typ
     
     where
