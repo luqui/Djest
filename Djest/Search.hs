@@ -5,6 +5,7 @@ module Djest.Search where
 import qualified Djest.Solver as S
 import qualified Djest.Compiler as C
 import qualified Data.Map as Map
+import Debug.Trace (trace)
 
 compileExp :: S.Exp -> a
 compileExp = C.compile . go
@@ -18,7 +19,7 @@ search typeDesc tests =
     case S.parseType typeDesc of
         Left err -> error (show err)
         Right typ ->
-            case filter tests . map compileExp . S.runSolver $ Map.empty S.|- typ of
+            case filter tests . map compileExp . map (\x -> trace (show (S.printExp x)) x) . S.runSolver $ Map.empty S.|- typ of
                 [] -> error $ "Type " ++ show (S.printType typ) ++ " not satisfiable"
                 (x:_) -> x
 
@@ -59,3 +60,17 @@ addChurch = adapt f
                     ]
     adapt :: (Church -> Church -> Church) -> Integer -> Integer -> Integer
     adapt f x y = fromChurch (f (toChurch x) (toChurch y))
+
+predChurch :: Integer -> Integer
+predChurch = adapt f
+    where
+    f = search "(forall r. (r -> r) -> r -> r) -> (forall r. (r -> r) -> r -> r)" $
+                \(f :: Church -> Church) ->
+                    let f' = adapt f in
+                    and [
+                        f' 1 == 0,
+                        f' 2 == 1,
+                        f' 3 == 2
+                    ]
+    adapt :: (Church -> Church) -> Integer -> Integer
+    adapt f x = fromChurch (f (toChurch x))

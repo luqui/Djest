@@ -9,7 +9,6 @@ import GHC.Prim (Any)
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Set as Set
 import Data.Functor.Foldable (Fix(..), cata)
-import Debug.Trace (trace)
 
 type Exp a = Fix (RExp a)
 
@@ -77,7 +76,6 @@ ignore = go id
 compile :: forall a b. (Ord a, Show a) => Exp a -> b
 compile = unsafeCoerce . go [] . withFreeVars
     where
-    go args exp | trace ("go " ++ show args ++ " $ " ++ show exp) False = undefined
     go args exp = let Ann _ x = unroll exp in go' args x
 
     go' args (ELambda x body) 
