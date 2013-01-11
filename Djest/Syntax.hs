@@ -88,13 +88,13 @@ pExp = P.choice [ lambda, opExp ]
 
 pAssertion :: Parser Assertion
 pAssertion = P.choice
-    [ P.try (flip ($) <$> pExp <* symbol "::" <*> 
+    [ P.try (ADefn <$> identifier <*> P.many pVarPat <* symbol "=" <*> pExp 
+                   <*> P.option [] (symbol "where" *> PL.laidout pAssertion))
+    , flip ($) <$> pExp <*> 
             P.choice [
-                flip AHasType <$> pType,
+                flip AHasType <$> (symbol "::" *> pType),
                 pure ATest
-            ])
-    , ADefn <$> identifier <*> P.many pVarPat <* symbol "=" <*> pExp 
-        <*> P.option [] (symbol "where" *> PL.laidout pAssertion)
+            ]
     ]
 
 pProgram :: Parser [Assertion]
