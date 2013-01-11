@@ -17,19 +17,23 @@ data Type
     | TForAll TypeVar Type
     | TApply Type Type
     | TVar Var
+    deriving (Show)
 
 data VarPat
     = VPVar Var
+    deriving (Show)
 
 data Exp
     = ELambda [VarPat] Exp
     | EApp Exp Exp
     | EVar Var
+    deriving (Show)
 
 data Assertion
     = AHasType Exp Type
     | ADefn Var [VarPat] Exp [Assertion]
     | ATest Exp
+    deriving (Show)
 
 type Parser = P.Parsec String PL.LayoutEnv
 
@@ -53,7 +57,7 @@ identifier = tok . guards (`notElem` reserved) $
 operator :: Parser String
 operator = tok . guards (`notElem` reserved) $ P.many1 (P.oneOf "`~!@#$%^&*-+=|\\:<>/?")
 
-reserved = [ "forall", "=", "::", "\\" ]
+reserved = [ "forall", "where", "=", "::", "\\" ]
 
 symbol :: String -> Parser ()
 symbol = fmap (const ()) . tok . P.string 
@@ -90,5 +94,11 @@ pAssertion = P.choice
                 pure ATest
             ])
     , ADefn <$> identifier <*> P.many pVarPat <* symbol "=" <*> pExp 
-        <* symbol "where" <*> PL.laidout pAssertion
+        <*> P.option [] (symbol "where" *> PL.laidout pAssertion)
     ]
+
+pProgram :: Parser [Assertion]
+pProgram = PL.laidout pAssertion
+
+parse :: String -> Either P.ParseError [Assertion]
+parse s = P.runParser pProgram PL.defaultLayoutEnv "<input>" s

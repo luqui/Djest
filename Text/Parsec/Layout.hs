@@ -127,7 +127,7 @@ virtual_lbrace :: Stream s m Char => ParsecT s LayoutEnv m ()
 virtual_lbrace = pushCurrentContext
 
 virtual_rbrace :: Stream s m Char => ParsecT s LayoutEnv m ()
-virtual_rbrace = try (layoutSatisfies (VBrace ==) <?> "outdent")
+virtual_rbrace = eof <|> try (layoutSatisfies (VBrace ==) <?> "outdent")
 
 -- recognize a run of one or more spaces including onside carriage returns in layout
 space :: Stream s m Char => ParsecT s LayoutEnv m String
