@@ -1,20 +1,41 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor, RankNTypes #-}
 
 module Djest.Heap 
     ( MonadDelay(..)
     , Heap, flattenHeap
+    , Heap', flattenHeap'
     )
 where
 
 import Djest.MonadDelay
 import Control.Applicative
-import Control.Monad (ap, MonadPlus(..))
+import Control.Monad (ap, liftM, MonadPlus(..))
 
 data Heap w a
     = Fail
     | Yield a (Heap w a)
     | Weight w (Heap w a)
     deriving (Show, Functor)
+
+newtype Heap' w a = Heap' { getHeap' :: forall r. (a -> Heap w r) -> Heap w r }
+
+instance Monad (Heap' w) where
+    return x = Heap' ($ x)
+    m >>= f = Heap' $ \r -> getHeap' m (\x -> getHeap' (f x) r)
+
+instance Functor (Heap' w) where
+    fmap = liftM
+
+instance Applicative (Heap' w) where
+    pure = return
+    (<*>) = ap
+
+instance (Weight w) => MonadPlus (Heap' w) where
+    mzero = Heap' $ const Fail
+    m `mplus` n = Heap' $ \r -> getHeap' m r `mplus` getHeap' n r
+
+instance (UnitWeight w) => MonadDelay (Heap' w) where
+    delay m = Heap' $ \r -> Weight unitWeight (getHeap' m r)
 
 class (Ord w) => Weight w where
     difference :: w -> w -> w
@@ -59,3 +80,6 @@ flattenHeap :: Heap w a -> [a]
 flattenHeap Fail = []
 flattenHeap (Yield x hs) = x : flattenHeap hs
 flattenHeap (Weight w hs) = flattenHeap hs
+
+flattenHeap' :: Heap' w a -> [a]
+flattenHeap' h = flattenHeap (getHeap' h (\x -> Yield x Fail))

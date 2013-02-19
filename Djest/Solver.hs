@@ -198,8 +198,8 @@ unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     go (t :% u) (t' :% u') = unify t t' >> unify u u'
     go _ _ = mzero
 
-runSolver :: StateT SolverState (Heap Int) a -> [a]
-runSolver s = flattenHeap (evalStateT s (SolverState Map.empty 0))
+runSolver :: StateT SolverState (Heap' Int) a -> [a]
+runSolver s = flattenHeap' (evalStateT s (SolverState Map.empty 0))
 
 refine :: (MonadSolver m) => Type -> Type -> m [Type]
 refine t a = (unify t a >> return []) `mplus` do
