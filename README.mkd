@@ -1,4 +1,4 @@
-This is Djesture, my work-in-progress entry to the Jan 2013 PLT Games competition,
+This is Djest, my work-in-progress entry to the Jan 2013 PLT Games competition,
 [Testing The Waters](http://www.pltgames.com/competition/2013/1).  Djesture is a
 purely functional, statically typed language with syntax and semantics similar
 to Haskell.  DJest has built-in automated testing support, but with an extra
