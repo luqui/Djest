@@ -2,25 +2,14 @@
 
 import Djest.Search
 
-add2 :: Integer -> Integer
-add2 = f 0 (1+)
-    where
-    f = search "forall Integer. Integer -> (Integer -> Integer) -> Integer -> Integer" $ \(f :: forall i. i -> (i -> i) -> i -> i) ->
-        let f' = f (0 :: Integer) (1+) in
-        and [
-            f' 0 == 2,
-            f' 2 == 4,
-            f' 4 == 6
-        ]
-
-type Church = forall r. (r -> r) -> r -> r
+newtype Church = Church { getChurch :: forall r. (r -> r) -> r -> r }
 
 toChurch :: Integer -> Church
-toChurch 0 f x = x
-toChurch n f x = f (toChurch (n-1) f x)
+toChurch 0 = Church $ \f x -> x
+toChurch n = Church $ \f x -> f (getChurch (toChurch (n-1)) f x)
 
 fromChurch :: Church -> Integer
-fromChurch ch = ch succ (0 :: Integer)
+fromChurch ch = getChurch ch succ (0 :: Integer)
 
 addChurch :: Integer -> Integer -> Integer
 addChurch = adapt f
@@ -53,4 +42,62 @@ predChurch = adapt f
     adapt :: (Church -> Church) -> Integer -> Integer
     adapt f x = fromChurch (f (toChurch x))
 
-main = print $ predChurch 100
+
+-- It can do reverse too, though it takes a lot of work to convince the
+-- typechecker that we're legit.
+
+newtype ChurchList a = ChurchList { getChurchList :: forall r. (a -> r -> r) -> r -> r }
+
+fromChurchList :: ChurchList a -> [a]
+fromChurchList l = getChurchList l (:) []
+
+toChurchList :: [a] -> ChurchList a
+toChurchList xs = ChurchList (\f z -> foldr f z xs)
+
+newtype ChurchListFunc = ChurchListFunc { getChurchListFunc :: forall a. ChurchList a -> ChurchList a }
+
+reverseChurch :: [a] -> [a]
+reverseChurch = adapt f
+  where
+    f :: ChurchListFunc
+    f = search "forall a. (forall r. (a -> r -> r) -> r -> r) -> (forall r. (a -> r -> r) -> r -> r)" $
+               \(f :: ChurchListFunc) ->
+                  let f' = adapt f in
+                  and [
+                      f' [] == ([] :: [()]),
+                      f' [1,2,3] == [3,2,1]
+                  ]
+    adapt :: ChurchListFunc -> [a] -> [a]
+    adapt f x = fromChurchList (getChurchListFunc f (toChurchList x))
+
+
+palinChurch :: [a] -> [a]
+palinChurch = adapt f
+  where
+    f :: ChurchListFunc
+    f = search "forall a. (forall r. (a -> r -> r) -> r -> r) -> (forall r. (a -> r -> r) -> r -> r)" $
+               \(f :: ChurchListFunc) ->
+                  let f' = adapt f in
+                  and [
+                      f' [] == ([] :: [()]),
+                      f' [1,2,3] == [1,2,3,3,2,1]
+                  ]
+    adapt :: ChurchListFunc -> [a] -> [a]
+    adapt f x = fromChurchList (getChurchListFunc f (toChurchList x))
+
+
+sumSquaresChurch :: [Integer] -> Integer
+sumSquaresChurch = adapt f
+  where
+    f = search "(forall r. ((forall z. (z -> z) -> z -> z) -> r -> r) -> r -> r) -> (forall z. (z -> z) -> z -> z)" $
+              \(f :: ChurchList Church -> Church) ->
+                 let f' = adapt f in
+                 and [
+                    f' [] == 0,
+                    f' [1] == 1,
+                    f' [1,2] == 5,
+                    f' [1,2,4] == 21
+                  ]
+    adapt f x = fromChurch (f (toChurchList (map toChurch x)))
+
+main = print $ sumSquaresChurch [1,2,3,4,5] -- 55
