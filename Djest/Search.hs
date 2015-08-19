@@ -5,6 +5,7 @@ module Djest.Search (search) where
 import qualified Djest.Solver as S
 import qualified Djest.Compiler as C
 import qualified Data.Map as Map
+import qualified Djest.Syntax as Syn
 import Debug.Trace (trace)
 
 compileExp :: S.Exp -> a
@@ -15,7 +16,7 @@ compileExp = C.compile . go
     go (S.EVar v) = C.var v
 
 search :: String -> (a -> Bool) -> a
-search typeDesc tests = 
+search typeDesc tests =
     case S.parseType typeDesc of
         Left err -> error (show err)
         Right typ ->

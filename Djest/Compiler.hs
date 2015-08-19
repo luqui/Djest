@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables, DeriveFunctor #-}
 
-module Djest.Compiler 
-    (lambda, app, var, compile) 
+module Djest.Compiler
+    (lambda, app, var, compile)
 where
 
 import Control.Applicative
@@ -50,7 +50,7 @@ withFreeVars = annotate ann
     ann (ELambda v fv) = Set.delete v fv
     ann (EApp a b) = Set.union a b
     ann (EVar v) = Set.singleton v
- 
+
 
 type Value = Any
 
@@ -78,11 +78,11 @@ compile = unsafeCoerce . go [] . withFreeVars
     where
     go args exp = let Ann _ x = unroll exp in go' args x
 
-    go' args (ELambda x body) 
+    go' args (ELambda x body)
         | x `Set.member` freeVars body = go (x:args) body
         | otherwise                    = ignore (length args) (go args body)
-    go' args (EApp a b) = projApp (zip (keepArgs args (freeVars a)) (keepArgs args (freeVars b))) 
-                          (go (filter (`Set.member` freeVars a) args) a) 
+    go' args (EApp a b) = projApp (zip (keepArgs args (freeVars a)) (keepArgs args (freeVars b)))
+                          (go (filter (`Set.member` freeVars a) args) a)
                           (go (filter (`Set.member` freeVars b) args) b)
     go' args (EVar x)
         | length args == 1 = unsafeCoerce id

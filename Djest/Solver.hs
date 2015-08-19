@@ -29,7 +29,7 @@ newtype ExpVar = ExpVar Integer
 
 infixr 9 :->
 infixl 9 :%
-data Type 
+data Type
     = Type :-> Type
     | Type :% Type
     | TForAll Type
@@ -55,17 +55,17 @@ typeParser = top Map.empty
         P.reservedOpNames = [],
         P.caseSensitive = True
     }
-    
+
     top m = foldr1 (:->) <$> P.sepBy1 (app m) (P.symbol lex "->")
     app m = foldl1 (:%) <$> P.many1 (atom m)
-    atom m = P.choice [ 
+    atom m = P.choice [
         P.reserved lex "forall" *> forAllVars m,
         P.identifier lex >>= \name -> case Map.lookup name m of
                                          Nothing -> fail $ "Type variable not in scope: " ++ name
                                          Just n -> return $ TVar n,
         P.parens lex (top m)
         ]
-    forAllVars m = P.choice [ 
+    forAllVars m = P.choice [
         P.dot lex *> top m,
         P.identifier lex >>= \name -> TForAll <$> forAllVars (Map.insert name 0 . Map.map succ $ m)
         ]
@@ -106,7 +106,7 @@ mainF :: String -> IO ()
 mainF input = do
     typ <- either (fail.show) return $ parse typeParser input
     mapM_ showLine . runSolver $ Map.empty |- typ
-    
+
     where
     showLine x = print (printExp x) >> getLine >> return ()
 
@@ -134,7 +134,7 @@ printExp e = Supply.evalSupply (go Map.empty id id e) letters
         xp <- go names PP.parens PP.parens x
         return . pa $ fp PP.<+> xp
     go names pl pa (EVar v) = return $ PP.text (names Map.! v)
-    
+
     letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
 
 raise :: Int -> Type -> Type
@@ -144,7 +144,7 @@ raise n = go 0
     go level (t :-> u) = go level t :-> go level u
     go level (t :% u) = go level t :% go level u
     go level (TForAll t) = TForAll (go (level + 1) t)
-    go level (TVar z) 
+    go level (TVar z)
         | z < level = TVar z
         | otherwise = TVar (z+n)
     go _ x = x
@@ -219,7 +219,7 @@ split (x:xs) = swap . first (x:) . split $ xs
 type Rule m = Env -> Type -> m Exp
 
 infix 1 |-
-(|-) :: (MonadSolver m) => Env -> Type -> m Exp
+(|-) :: (MonadSolver m) => Rule m
 env |- t = do
     t' <- substWhnf' t
     msum [ rule env t' | rule <- rules ]
@@ -234,7 +234,7 @@ rules = [rArrow, rForAll, rRefine]
 
     rForAll env (TForAll t) = do
         rigid <- RigidVar <$> supply
-        env |- subst (TRigid rigid) t    
+        env |- subst (TRigid rigid) t
     rForAll _ _ = mzero
 
     rRefine env (TMeta _) = mzero

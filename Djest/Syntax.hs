@@ -6,6 +6,7 @@ import qualified Text.Parsec.Token as P
 import qualified Text.Parsec.Language as P
 import qualified Text.Parsec.Layout as PL
 import qualified Data.Char as Char
+import qualified Data.Map as Map
 import Control.Applicative
 import Control.Monad (guard)
 
@@ -30,10 +31,16 @@ data Exp
     deriving (Show)
 
 data Assertion
-    = AHasType Exp Type
+    = AHasType Var Type
     | ADefn Var [VarPat] Exp [Assertion]
     | ATest Exp
     deriving (Show)
+
+data Program = Program {
+    progDefns :: Map.Map Var Exp,
+    progTypes :: Map.Map Var Type,
+    progTests :: [Exp]
+}
 
 type Parser = P.Parsec String PL.LayoutEnv
 
@@ -51,25 +58,25 @@ guards f p = do
 
 identifier :: Parser String
 identifier = tok . guards (`notElem` reserved) $
-    (:) <$> P.satisfy ((||) <$> Char.isLetter <*> (== '_')) 
+    (:) <$> P.satisfy ((||) <$> Char.isLetter <*> (== '_'))
         <*> P.many (P.satisfy ((||) <$> Char.isAlphaNum <*> (`elem` "'_")))
 
 operator :: Parser String
 operator = tok . guards (`notElem` reserved) $ P.many1 (P.oneOf "`~!@#$%^&*-+=|\\:<>/?")
 
-reserved = [ "forall", "where", "=", "::", "\\" ]
+reserved = [ "forall", "where", "=", "::", "\\", "->" ]
 
 symbol :: String -> Parser ()
-symbol = fmap (const ()) . tok . P.string 
+symbol = fmap (const ()) . tok . P.string
 
 parens :: Parser a -> Parser a
 parens p = symbol "(" *> p <* symbol ")"
 
 pType :: Parser Type
-pType = foldr1 TArrow <$> P.many1 app
+pType = foldr1 TArrow <$> P.sepBy1 app (symbol "->")
     where
     forAll = TForAll <$> (symbol "forall" *> identifier <* symbol ".") <*> pType
-    app = foldl1 TApply <$> P.many1 atom
+    app = forAll <|> foldl1 TApply <$> P.many1 atom
     atom = TVar <$> identifier <|> parens pType
 
 pVarPat :: Parser VarPat
@@ -88,17 +95,26 @@ pExp = P.choice [ lambda, opExp ]
 
 pAssertion :: Parser Assertion
 pAssertion = P.choice
-    [ P.try (ADefn <$> identifier <*> P.many pVarPat <* symbol "=" <*> pExp 
+    [ P.try (ADefn <$> identifier <*> P.many pVarPat <* symbol "=" <*> pExp
                    <*> P.option [] (symbol "where" *> PL.laidout pAssertion))
-    , flip ($) <$> pExp <*> 
-            P.choice [
-                flip AHasType <$> (symbol "::" *> pType),
-                pure ATest
-            ]
+    , P.try (AHasType <$> identifier <*> (symbol "::" *> pType))
+    , ATest <$> pExp
     ]
 
-pProgram :: Parser [Assertion]
-pProgram = PL.laidout pAssertion
+assertionsToProgram :: [Assertion] -> Program
+assertionsToProgram as = Program {
+        progDefns = Map.fromList [(v, defnToExp d) | d@(ADefn v _ _ _) <- as],
+        progTypes = Map.fromList [(v, t) | AHasType v t <- as],
+        progTests = [ e | ATest e <- as]
+    }
+    where
+    defnToExp :: Assertion -> Exp
+    defnToExp (ADefn _ vars body []) = ELambda vars body
+    defnToExp (ADefn _ _ _ xs) = error "Sorry I don't get where clauses yet"
+    defnToExp _ = error "defnToExp: not a Defn"
 
-parse :: String -> Either P.ParseError [Assertion]
+pProgram :: Parser Program
+pProgram = assertionsToProgram <$> PL.laidout pAssertion
+
+parse :: String -> Either P.ParseError Program
 parse s = P.runParser pProgram PL.defaultLayoutEnv "<input>" s
