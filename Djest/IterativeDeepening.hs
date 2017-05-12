@@ -11,7 +11,7 @@ import Control.Monad.Trans.Reader
 import Djest.MonadDelay
 
 newtype T w a = T { runT :: ReaderT w (StateT w Logic) a }
-  deriving (Functor, Applicative, Monad, MonadPlus)
+  deriving (Functor, Applicative, Alternative, Monad, MonadPlus)
 
 instance (Ord w, Num w) => MonadDelay (T w) where
     delay t = T $ do
