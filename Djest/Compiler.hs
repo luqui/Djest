@@ -5,7 +5,7 @@ module Djest.Compiler
 where
 
 import Control.Applicative
-import GHC.Prim (Any)
+import GHC.Types (Any)
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Set as Set
 import Data.Functor.Foldable (Fix(..), cata)

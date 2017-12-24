@@ -56,20 +56,26 @@ toChurchList xs = ChurchList (\f z -> foldr f z xs)
 
 newtype ChurchListFunc = ChurchListFunc { getChurchListFunc :: forall a. ChurchList a -> ChurchList a }
 
+newtype ChurchListSnocFunc = ChurchListSnocFunc { getChurchListSnocFunc :: forall a. (ChurchList a -> a -> ChurchList a) -> ChurchList a -> ChurchList a }
+
+-- Deducing reverse is too hard to be done quickly, but if snoc is assumed
+-- then it is found immediately.
 reverseChurch :: [a] -> [a]
 reverseChurch = adapt f
   where
-    f :: ChurchListFunc
-    f = search "forall a. (forall r. (a -> r -> r) -> r -> r) -> (forall r. (a -> r -> r) -> r -> r)" $
-               \(f :: ChurchListFunc) ->
+    f :: ChurchListSnocFunc
+    f = search "forall a. ((forall r. (a -> r -> r) -> r -> r) -> a -> (forall r. (a -> r -> r) -> r -> r)) -> (forall r. (a -> r -> r) -> r -> r) -> (forall r. (a -> r -> r) -> r -> r)" $
+               \(f :: ChurchListSnocFunc) ->
                   let f' = adapt f in
                   and [
                       f' [] == ([] :: [()]),
                       f' [1,2,3] == [3,2,1]
                   ]
-    adapt :: ChurchListFunc -> [a] -> [a]
-    adapt f x = fromChurchList (getChurchListFunc f (toChurchList x))
+    adapt :: ChurchListSnocFunc -> [a] -> [a]
+    adapt f x = fromChurchList (getChurchListSnocFunc f snoc (toChurchList x))
 
+snoc :: ChurchList a -> a -> ChurchList a
+snoc xs x = toChurchList (fromChurchList xs ++ [x])
 
 palinChurch :: [a] -> [a]
 palinChurch = adapt f
@@ -100,4 +106,4 @@ sumSquaresChurch = adapt f
                   ]
     adapt f x = fromChurch (f (toChurchList (map toChurch x)))
 
-main = print $ sumSquaresChurch [1,2,3,4,5] -- 55
+main = print $ reverseChurch [1,2,3,4,5] -- [5,4,3,2,1]
