@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds, RankNTypes, ScopedTypeVariables, TemplateHaskell #-}
 
-module Djest.Search (search, define) where
+module Djest.Search (search, deduce) where
 
 import qualified Djest.Solver as S
 import qualified Djest.Compiler as C
@@ -14,8 +14,8 @@ import Debug.Trace (trace)
 import Unsafe.Coerce (unsafeCoerce)
 import GHC.Types (Any)
 
-define :: String -> TH.Q TH.Type -> TH.Q TH.Exp -> TH.Q [TH.Dec]
-define namestr qtype qtests = do
+deduce :: String -> TH.Q TH.Type -> TH.Q TH.Exp -> TH.Q [TH.Dec]
+deduce namestr qtype qtests = do
     let name = TH.mkName namestr
     typ <- qtype
     t <- decodeType typ
