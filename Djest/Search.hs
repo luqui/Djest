@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, RankNTypes, ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds, RankNTypes, ScopedTypeVariables, TemplateHaskell #-}
 
 module Djest.Search (search, define) where
 
@@ -7,23 +7,46 @@ import qualified Djest.Compiler as C
 import qualified Data.Map as Map
 import qualified Djest.Syntax as Syn
 import qualified Language.Haskell.TH as TH
+import qualified Language.Haskell.TH.Syntax as TH
 import qualified Data.Map as Map
 import Control.Applicative (liftA2)
 import Debug.Trace (trace)
+import Unsafe.Coerce (unsafeCoerce)
+import GHC.Types (Any)
 
-define :: String -> TH.Q TH.Type -> TH.Q [TH.Dec]
-define namestr qtype = do
+define :: String -> TH.Q TH.Type -> TH.Q TH.Exp -> TH.Q [TH.Dec]
+define namestr qtype qtests = do
     let name = TH.mkName namestr
     typ <- qtype
     t <- decodeType typ
-    case S.runSolver $ Map.empty S.|- t of
-        [] -> fail $ "No satisfiable definition for type " ++ show t
-        (exp:_) -> do
-            hexp <- encodeExp exp
-            return [TH.SigD name typ, TH.FunD name [TH.Clause [] (TH.NormalB hexp) []]]
+
+    typeName <- TH.newName $ "TypeOf_" ++ namestr
+    conName  <- TH.newName $ "TypeOf_" ++ namestr
+    accName  <- TH.newName $ "getTypeOf_" ++ namestr
+
+    let typedecs = [
+            TH.NewtypeD [] typeName [] Nothing 
+                (TH.RecC conName [(accName, TH.Bang TH.NoSourceUnpackedness TH.NoSourceStrictness, typ)]) [] ]
+
+    testsName <- TH.newName "tests"
+    testsParamName <- TH.newName $ "param_" ++ namestr
+    testsBody <- qtests
+    Just boolname <- TH.lookupTypeName "Bool"
+    let testsDecs =
+            [ TH.SigD testsName (TH.AppT (TH.AppT TH.ArrowT (TH.ConT typeName)) (TH.ConT boolname))
+            , TH.FunD testsName [TH.Clause [TH.VarP testsParamName] (TH.NormalB testsBody) 
+                [ TH.SigD name typ
+                , TH.FunD name [
+                    TH.Clause [] (TH.NormalB (TH.AppE (TH.VarE accName) (TH.VarE testsParamName))) []
+                    ]
+                ]]
+            ]
+
+    insertExp <- [| $(return (TH.VarE accName)) (searchT $(TH.liftData t) $(return (TH.VarE testsName))) |]
+    return $ typedecs ++ [TH.SigD name typ, TH.FunD name [TH.Clause [] (TH.NormalB insertExp) testsDecs]]
 
 decodeType :: TH.Type -> TH.Q S.Type
-decodeType t = go Map.empty t
+decodeType = go Map.empty
     where
     go env (TH.ForallT [] cx body)
         | not (null cx) = fail "Typeclass contexts are not yet supported"
@@ -59,16 +82,17 @@ encodeExp = go Map.empty
         | otherwise =
             fail $ "Variable " ++ show v ++ " not in environment"
 
-
+searchT :: S.Type -> (a -> Bool) -> a
+searchT typ tests =
+    case filter tests . map compileExp . map (\x -> trace (show (S.printExp x)) x) . S.runSolver $ Map.empty S.|- typ of
+        [] -> error $ "Type " ++ show (S.printType typ) ++ " not satisfiable"
+        (x:_) -> x
 
 search :: String -> (a -> Bool) -> a
 search typeDesc tests =
     case S.parseType typeDesc of
         Left err -> error (show err)
-        Right typ ->
-            case filter tests . map compileExp . map (\x -> trace (show (S.printExp x)) x) . S.runSolver $ Map.empty S.|- typ of
-                [] -> error $ "Type " ++ show (S.printType typ) ++ " not satisfiable"
-                (x:_) -> x
+        Right typ -> searchT typ tests
 
 compileExp :: S.Exp -> a
 compileExp = C.compile . go

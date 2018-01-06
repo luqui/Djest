@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving, ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts, ScopedTypeVariables, KindSignatures, GADTs, DeriveFunctor, DeriveFoldable, DeriveTraversable, RankNTypes, StandaloneDeriving, ConstraintKinds, DeriveDataTypeable #-}
 
 module Djest.Solver where
 
@@ -11,6 +11,7 @@ import qualified Control.Monad.Supply as Supply
 import Control.Applicative
 import Control.Arrow (first, second)
 import Data.Tuple (swap)
+import Data.Data
 import System.Environment (getArgs)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -21,11 +22,11 @@ import qualified Text.PrettyPrint as PP
 
 
 newtype MetaVar = MetaVar Integer
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Data, Typeable)
 newtype RigidVar = RigidVar Integer
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Data, Typeable)
 newtype ExpVar = ExpVar Integer
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Data, Typeable)
 
 infixr 9 :->
 infixl 9 :%
@@ -36,7 +37,7 @@ data Type
     | TVar Int
     | TMeta MetaVar
     | TRigid RigidVar
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Data, Typeable)
 
 type Parser = P.Parsec String ()
 typeParser :: Parser Type
