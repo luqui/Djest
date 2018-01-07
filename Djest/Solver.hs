@@ -202,12 +202,12 @@ runSolver :: StateT SolverState (ID.T Int) a -> [a]
 runSolver s = ID.flatten (evalStateT s (SolverState Map.empty 0))
 
 refine :: (MonadSolver m) => Type -> Type -> m [Type]
-refine t a = (unify t a >> return []) `mplus` do
+refine t a = (unify t a >> return []) `mplus` delay (do
         t' <- substWhnf' t
-        go t' a
+        go t' a)
     where
     go (t :-> u) a = (t:) <$> refine u a
-    go (TForAll t) a = delay $ do -- delay because instantiating a variable can be costly
+    go (TForAll t) a = do
         meta <- MetaVar <$> supply
         refine (subst (TMeta meta) t) a
     go _ _ = mzero

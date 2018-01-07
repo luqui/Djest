@@ -54,7 +54,7 @@ deduce "snoc" [t| forall a. List a -> a -> List a |]
 
 -- Deducing reverse is too hard by itself, but if we do snoc first it's easy.
 deduce "reverseChurch" [t| forall a. List a -> List a |]
-    ['foldList, 'cons, 'snoc, 'nil]
+    ['foldList, 'cons, 'nil]
     [| and [ reverseChurch (List []) == List ([] :: [()])
            , reverseChurch (List [1,2,3]) == List [3,2,1]
            ] |]
