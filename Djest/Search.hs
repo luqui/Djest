@@ -22,8 +22,9 @@ filterMaybeM p = fmap catMaybes . traverse p
 deduce :: String -> TH.Q TH.Type -> [TH.Name] -> TH.Q TH.Exp -> TH.Q [TH.Dec]
 deduce namestr qtype hints qtests = do
     hintTypes <- filterMaybeM (TH.reify >=> \case 
-                                 TH.VarI n typ _ -> return (Just (n, typ))
-                                 _               -> return Nothing)
+                                 TH.VarI n typ _     -> return (Just (TH.VarE n, typ))
+                                 TH.DataConI n typ _ -> return (Just (TH.ConE n, typ))
+                                 _                   -> return Nothing)
                               hints
 
     let name = TH.mkName namestr
@@ -45,7 +46,7 @@ deduce namestr qtype hints qtests = do
     testsBody <- qtests
     Just boolname <- TH.lookupTypeName "Bool"
 
-    let applyHints exp = foldl TH.AppE exp (map (TH.VarE . fst) hintTypes)
+    let applyHints exp = foldl TH.AppE exp (map fst hintTypes)
 
     let testsDecs =
             [ TH.SigD testsName (TH.AppT (TH.AppT TH.ArrowT (TH.ConT typeName)) (TH.ConT boolname))
