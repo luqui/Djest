@@ -20,10 +20,9 @@ import qualified Text.Parsec.Token as P
 import qualified Text.PrettyPrint as PP
 
 
-
 newtype MetaVar = MetaVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
-newtype RigidVar = RigidVar Integer
+data RigidVar = RigidVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
 newtype ExpVar = ExpVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
@@ -212,10 +211,6 @@ refine t a = (unify t a >> return []) `mplus` do
         meta <- MetaVar <$> supply
         refine (subst (TMeta meta) t) a
     go _ _ = mzero
-
-split :: [a] -> ([a],[a])
-split [] = ([], [])
-split (x:xs) = swap . first (x:) . split $ xs
 
 type Rule m = Env -> Type -> m Exp
 

@@ -12,6 +12,7 @@ import qualified Data.Map as Map
 import Control.Applicative (liftA2)
 import Control.Monad ((>=>))
 import Data.Maybe (catMaybes)
+import Data.Monoid ((<>))
 import Debug.Trace (trace)
 import GHC.Types (Any)
 
@@ -60,7 +61,9 @@ deduce namestr qtype hints qtests = do
     return $ typedecs ++ [TH.SigD name typ, TH.FunD name [TH.Clause [] (TH.NormalB insertExp) testsDecs]]
 
 decodeType :: TH.Type -> TH.Q S.Type
-decodeType = go Map.empty
+decodeType typ = do
+    -- Using conNames, we abstract over all concrete names in the type as well.
+    go Map.empty $ foldr (\v -> TH.ForallT [TH.PlainTV v] []) typ (conNames typ)
     where
     go env (TH.ForallT [] cx body)
         | not (null cx) = fail "Typeclass contexts are not yet supported"
@@ -77,10 +80,20 @@ decodeType = go Map.empty
     go env (TH.VarT n)
         | Just dbi <- Map.lookup n env = return (S.TVar dbi)
         | otherwise = fail $ "Unknown variable " ++ show n ++ " (only quantified variables are currently supported)"
+
+    go env (TH.ConT n) 
+        | Just dbi <- Map.lookup n env = return (S.TVar dbi)
+        | otherwise = fail $ "Unknown constructor " ++ show n
     
     go env (TH.ParensT t) = go env t
 
     go env t = fail $ "Unsupported construct " ++ show t
+
+    conNames (TH.ForallT _ _ body) = conNames body
+    conNames (TH.AppT t t') = conNames t <> conNames t'
+    conNames (TH.ConT n) = [n]
+    conNames (TH.ParensT t) = conNames t
+    conNames _ = []
 
 
 encodeExp :: S.Exp -> TH.Q TH.Exp
