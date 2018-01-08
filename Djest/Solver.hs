@@ -120,19 +120,6 @@ parse p = P.parse (p <* P.eof) "<input>"
 parseType :: String -> Either P.ParseError Type
 parseType = parse typeParser
 
-mainF :: String -> IO ()
-mainF input = do
-    typ <- either (fail.show) return $ parse typeParser input
-    mapM_ showLine . runSolver $ Map.empty |- typ
-
-    where
-    showLine x = print (printExp x) >> getLine >> return ()
-
-main :: IO ()
-main = do
-    [input] <- getArgs
-    mainF input
-
 infixl 9 :$
 data Exp
     = ELambda ExpVar Exp
