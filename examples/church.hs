@@ -50,7 +50,8 @@ deduce "snoc" [t| forall a. List a -> a -> List a |]
            , snoc (List [1,2,3]) 4 == List [1,2,3,4]
            ] |]
 
--- Deducing reverse is too hard by itself, but if we do snoc first it's easy.
+-- Deducing reverse is too hard by itself (actually it only takes 20s or so), 
+-- but if we do snoc first it's easy (~1s, including the time to find snoc)
 deduce "reverseChurch" [t| forall a. List a -> List a |]
     ['foldList, 'snoc, 'nil]
     [| and [ reverseChurch (List []) == List ([] :: [()])
