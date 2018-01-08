@@ -1,17 +1,16 @@
-This is Djest, my work-in-progress entry to the Jan 2013 PLT Games competition,
-[Testing The Waters](http://www.pltgames.com/competition/2013/1).  Djesture is a
-purely functional, statically typed language with syntax and semantics similar
-to Haskell.  DJest has built-in automated testing support, but with an extra
-perk: you don't need to write the code you are testing.
+Djest was born as an entry into the Jan 2013 PLT Games competition,
+[Testing The Waters](http://www.pltgames.com/competition/2013/1) (but I didn't
+finish in time to enter).  It improves Haskell's support for automated testing,
+by making it so you don't have to write the code you are testing at all!
 
     succ :: Int -> Int
-    succ 0 = 1
-    succ 1 = 2
-    succ 10 = 11
+    succ 0 == 1
+    succ 1 == 2
+    succ 10 == 11
 
-This is enough to have Djesture deduce that `succ x = x + 1`.
+This is enough to have Djest deduce that `succ x = x + 1`.
 
-Djesture uses a [Djinn](http://lambda-the-ultimate.org/node/1178)-like satisfier
+Djest uses a [Djinn](http://lambda-the-ultimate.org/node/1178)-like satisfier
 which searches for functions of a given type.  The generated functions are then
 tested with the test suite until one that passes all the tests is found, at
 which point that function is taken as its definition.  If it uses the wrong
@@ -19,7 +18,7 @@ function, then clearly your test suite was not comprehensive!
 
 Generated functions are tested in roughly increasing order of complexity, so
 simpler functions are used in preference to more complex ones.  This is what
-allows Djesture to find `succ x = x + 1` instead of
+allows Djest to find `succ x = x + 1` instead of
 
     succ x = case x of
                  0 -> 1
@@ -28,3 +27,10 @@ allows Djesture to find `succ x = x + 1` instead of
                  _ -> 0
 
 which is most likely not the function the programmer had in mind.
+
+Djest is powerful enough to deduce the predecessor function on Church numerals,
+which Alonzo Church himself could not find (albeit without a computer). It
+handles rank *n* polymorphism and only finds total functions (I believe it will
+eventually find every non-recursive function, but I am not sure).
+
+Check out the examples/ directory.
