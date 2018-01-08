@@ -1,0 +1,53 @@
+It struck me this morning during a quiet cup of coffee the similarity between
+Djest's problem and Martín Escardó's [Seemingly impossible functional
+programs][1].  Suppose we are trying to deduce a pair of functions at once, so
+we search for the pair `(T,U)`, and have a collection of tests for `T`, a
+collection for `U`, and a collection for both interacting.  I will have to
+generate the product of the search spaces for `T` and `U`, so this is a bad
+approach.  However, if I generate a pair `(T,U)` and the first component fails
+one of the tests for `T` alone, it is useless to try this same `T` with
+different `U`s -- that pair will fail in exactly the same way.  If the structure
+of the failure were sufficiently known, a large amount of the search space could
+be pruned.
+
+But a pair of functions is just a motivating example, and perhaps there are
+subtle properties of the functions generated that could be guided by subtle
+properties of the tests, so we could prune the space in unexpected ways.  This
+is what reminded me of Escardó's work, which uses the laziness of the criteria
+to guide the search.
+
+Dan Piponi's ["Memoizing Polymorphic Functions with High School Algebra and
+Quantifiers"][2] shows us how we can convert polymorphic types like the ones
+Djest operates on to monomorphic types.  Are those monomorphic type searchable?
+Can we search them in a smarter way than enumeration?
+
+(Trying to monomorphize church numerals)
+
+    forall a. (a -> a) -> (a -> a)
+    = ∀a. (a^a)^(a^a)
+    = ∀a. a^(a*a^a)
+    = ∀a. a^(a^(a+1))
+
+Hmm, this is hard.  I think monomorphization might be going down the wrong
+rabbit hole anyway.
+
+One thing we do a lot which is similar to the product example above is applying
+multiple arguments to a function.  If `f x ⟂` fails the tests, then we shouldn't
+bother searching for any `y`s, we can rule out `x` entirely.  This could give us
+a lot of headway.
+
+There might be something beautiful à la Escardó in which the way we generate the
+functions has this domain structure encoded, but there are challenges:
+
+* What if the tests are specified in the wrong order for efficient search?  (We
+could use `unamb`, but it's flaky enough that I don't trust it to be practical)
+* It's probably hard/subtle to write, and we are doing some fairly complex
+stuff.  (But then again, the beauty might lead us)
+
+An ugly but practical way would be to literally try `undefined` in that position
+and catch the exception.  If all the tests pass... we just keep the `undefined`
+(or `error "underspecified"`).  If a test fails, we rule out that whole branch.
+There shouldn't be a problem with this since the code we are deducing is pure.
+
+[1]: http://math.andrej.com/2007/09/28/seemingly-impossible-functional-programs/
+[2]: http://blog.sigfpe.com/2009/11/memoizing-polymorphic-functions-with.html
