@@ -5,20 +5,21 @@ module Djest.Solver where
 import Prelude hiding (lex)
 import Control.Monad.Logic
 import Control.Monad.State
+import Control.Monad.Writer
 import Djest.MonadDelay
 import qualified Djest.IterativeDeepening as ID
 import qualified Control.Monad.Supply as Supply
 import Control.Applicative
 import Control.Arrow (first, second)
 import Data.Tuple (swap)
-import Data.Data
+import Debug.Trace (trace)
 import System.Environment (getArgs)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Text.Parsec as P
 import qualified Text.Parsec.Token as P
 import qualified Text.PrettyPrint as PP
-
+import Data.Data
 
 newtype MetaVar = MetaVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
@@ -26,6 +27,15 @@ data RigidVar = RigidVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
 newtype ExpVar = ExpVar Integer
     deriving (Eq, Ord, Show, Data, Typeable)
+
+renderExpVar :: ExpVar -> String
+renderExpVar (ExpVar n) = "@" ++ show n
+
+renderMetaVar :: MetaVar -> String
+renderMetaVar (MetaVar n) = "?" ++ show n
+
+renderRigidVar :: RigidVar -> String
+renderRigidVar (RigidVar n) = "!" ++ show n
 
 infixr 9 :->
 infixl 9 :%
@@ -80,20 +90,28 @@ printType t = Supply.evalSupply (go [] id id t) letters
     go names pr pa (t :% u) = do
         tp <- go names PP.parens id t
         up <- go names PP.parens PP.parens u
-        return . pa $ tp PP.<+> PP.text "->" PP.<+> up
+        return . pa $ tp PP.<+> up
     go names pr pa t@(TForAll _) = do
         (t', bound) <- foralls t
         rest <- go (reverse bound ++ names) id id t'
         return . pr $ PP.text "forall" PP.<+> PP.hsep (map PP.text bound) PP.<> PP.text "." PP.<+> rest
     go names pr pa (TVar z) = return $ PP.text (names !! z)
-    go names pr pa (TMeta z) = return $ PP.text ("?" ++ show z)
-    go names pr pa (TRigid z) = return $ PP.text ("!" ++ show z)
+    go names pr pa (TMeta v) = return $ PP.text (renderMetaVar v)
+    go names pr pa (TRigid v) = return $ PP.text (renderRigidVar v)
 
     foralls (TForAll t) = liftM2 (second . (:)) Supply.supply (foralls t)
     foralls x = return (x, [])
 
     letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
 
+printTurnstile :: SolverState -> Env -> Type -> PP.Doc
+printTurnstile state env t = PP.vcat [ printVars vs PP.<+> PP.text ":" PP.<+> printType (substAll (metaSubst state) k) | (k,vs) <- Map.toList env ]
+                         PP.$$ 
+                       PP.text "|-"
+                         PP.$$ 
+                       printType (substAll (metaSubst state) t)
+    where
+    printVars vs = PP.hsep $ map (PP.text . renderExpVar) vs
 
 
 parse :: Parser a -> String -> Either P.ParseError a
@@ -133,7 +151,7 @@ printExp e = Supply.evalSupply (go Map.empty id id e) letters
         fp <- go names PP.parens id f
         xp <- go names PP.parens PP.parens x
         return . pa $ fp PP.<+> xp
-    go names pl pa (EVar v) = return $ PP.text (names Map.! v)
+    go names pl pa (EVar v) = return $ PP.text (Map.findWithDefault (renderExpVar v) v names)
 
     letters = map (:[]) ['a'..'z'] ++ liftM2 (:) ['a'..'z'] letters
 
@@ -160,13 +178,21 @@ subst new = go 0
 
 
 substWhnf :: MetaSubst -> Type -> Type
-substWhnf m (TMeta n) | Just t <- Map.lookup n m = t
+substWhnf m (TMeta n) | Just t <- Map.lookup n m = substWhnf m t
 substWhnf m t = t
 
 substWhnf' :: (MonadState SolverState m) => Type -> m Type
-substWhnf' t = do
-    s <- gets metaSubst
-    return $ substWhnf s t
+substWhnf' t = flip substWhnf t <$> gets metaSubst
+
+substAll :: MetaSubst -> Type -> Type
+substAll m (t :-> u) = substAll m t :-> substAll m u
+substAll m (t :% u) = substAll m t :% substAll m u
+substAll m (TForAll t) = TForAll (substAll m t)
+substAll m (TMeta n) | Just t <- Map.lookup n m = substAll m t
+substAll m t = t
+
+substAll' :: (MonadState SolverState m) => Type -> m Type
+substAll' t = flip substAll t <$> gets metaSubst
 
 
 data SolverState = SolverState {
@@ -186,31 +212,48 @@ onMetaSubst f s = s { metaSubst = f (metaSubst s) }
 type MetaSubst = Map.Map MetaVar Type
 type Env = Map.Map Type [ExpVar]
 
-type MonadSolver m = (Functor m, MonadState SolverState m, MonadDelay m)
+type MonadSolver m = (Functor m, MonadState SolverState m, MonadDelay m, MonadWriter [PP.Doc] m)
 
-unify :: (MonadState SolverState m, MonadPlus m) => Type -> Type -> m ()
+unify :: (MonadSolver m) => Type -> Type -> m ()
 unify t u = join $ liftM2 go (substWhnf' t) (substWhnf' u)
     where
     go t u | t == u = return ()
-    go (TMeta m) u = modify . onMetaSubst $ Map.insert m u
-    go t (TMeta m) = modify . onMetaSubst $ Map.insert m t
+    go (TMeta m) u = setMeta m u
+    go t (TMeta m) = setMeta m t
     go (t :-> u) (t' :-> u') = unify t t' >> unify u u'
     go (t :% u) (t' :% u') = unify t t' >> unify u u'
+    -- TOOD unify TForAlls?
     go _ _ = mzero
 
-runSolver :: StateT SolverState (ID.T Int) a -> [a]
-runSolver s = ID.flatten (evalStateT s (SolverState Map.empty 0))
+    setMeta m t = do
+        t' <- substAll' t
+        guard $ not (occurs m t')
+        tell [PP.text (renderMetaVar m ++ " :=") PP.<+> printType t']
+        modify . onMetaSubst $ Map.insert m t'
+
+    occurs m (TMeta m') | m == m' = True
+    occurs m (t :-> u) = occurs m t || occurs m u
+    occurs m (t :% u) = occurs m t || occurs m u
+    occurs m (TForAll t) = occurs m t
+    occurs _ _ = False
+
+runSolver :: WriterT [PP.Doc] (StateT SolverState (ID.T Int)) a -> [a]
+runSolver s = map traceline $ ID.flatten (evalStateT (runWriterT s) (SolverState Map.empty 0))
+    where
+    --traceline (r, tr) = trace (unlines (map (\x -> show x ++ "\n") tr)) r
+    traceline (r, _) = r
 
 refine :: (MonadSolver m) => Type -> Type -> m [Type]
-refine t a = (unify t a >> return []) `mplus` delay (do
-        t' <- substWhnf' t
-        go t' a)
-    where
-    go (t :-> u) a = (t:) <$> refine u a
-    go (TForAll t) a = do
-        meta <- MetaVar <$> supply
-        refine (subst (TMeta meta) t) a
-    go _ _ = mzero
+refine t a = do
+    t' <- substWhnf' t
+    tell [PP.text "(refine) " PP.<+> printType t' PP.<+> PP.text "against" PP.<+> printType a]
+    (unify t' a >> return []) `mplus` delay (do
+        case t' of
+            dom :-> cod -> (dom:) <$> refine cod a
+            TForAll body -> do
+                meta <- MetaVar <$> supply
+                refine (subst (TMeta meta) body) a
+            _ -> mzero)
 
 type Rule m = Env -> Type -> m Exp
 
@@ -218,17 +261,21 @@ infix 1 |-
 (|-) :: (MonadSolver m) => Rule m
 env |- t = do
     t' <- substWhnf' t
+    state <- get
+    tell [printTurnstile state env t]
     msum [ rule env t' | rule <- rules ]
 
 rules :: (MonadSolver m) => [Rule m]
 rules = [rArrow, rForAll, rRefine]
     where
     rArrow env (t :-> u) = do
+        tell [PP.text "rArrow"]
         ev <- ExpVar <$> supply
         ELambda ev <$> (Map.insertWith (++) t [ev] env |- u)
     rArrow _ _ = mzero
 
     rForAll env (TForAll t) = do
+        tell [PP.text "rForAll"]
         rigid <- RigidVar <$> supply
         env |- subst (TRigid rigid) t
     rForAll _ _ = mzero
@@ -239,5 +286,9 @@ rules = [rArrow, rForAll, rRefine]
         v <- vs
         return $ do
             args <- refine k t
-            proofs <- mapM (env |-) args
-            return $ foldl (:$) (EVar v) proofs
+            dbgType <- substAll' k
+            tell [PP.text "begin rRefine " PP.<+> PP.text (renderExpVar v) PP.<+> PP.text ":" PP.<+> printType dbgType]
+            proofs <- censor (map (PP.nest 2)) $ mapM (env |-) args
+            let result = foldl (:$) (EVar v) proofs
+            tell [PP.text "end rRefine " PP.<+> printExp result]
+            return result

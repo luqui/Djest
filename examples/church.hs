@@ -43,7 +43,6 @@ cons x (List xs) = List (x:xs)
 nil :: List a
 nil = List []
 
-
 deduce "snoc" [t| forall a. List a -> a -> List a |]
     ['foldList, 'cons, 'nil]
     [| and [ snoc (List []) 1 == List [1]
@@ -51,10 +50,9 @@ deduce "snoc" [t| forall a. List a -> a -> List a |]
            , snoc (List [1,2,3]) 4 == List [1,2,3,4]
            ] |]
 
-
 -- Deducing reverse is too hard by itself, but if we do snoc first it's easy.
 deduce "reverseChurch" [t| forall a. List a -> List a |]
-    ['foldList, 'cons, 'nil]
+    ['foldList, 'snoc, 'nil]
     [| and [ reverseChurch (List []) == List ([] :: [()])
            , reverseChurch (List [1,2,3]) == List [3,2,1]
            ] |]

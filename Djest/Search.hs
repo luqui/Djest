@@ -11,6 +11,7 @@ import qualified Language.Haskell.TH.Syntax as TH
 import qualified Data.Map as Map
 import Control.Applicative (liftA2)
 import Control.Monad ((>=>))
+import Data.List (nub)
 import Data.Maybe (catMaybes)
 import Data.Monoid ((<>))
 import Debug.Trace (trace)
@@ -64,7 +65,7 @@ deduce namestr qtype hints qtests = do
 decodeType :: TH.Type -> TH.Q S.Type
 decodeType typ = do
     -- Using conNames, we abstract over all concrete names in the type as well.
-    go Map.empty $ foldr (\v -> TH.ForallT [TH.PlainTV v] []) typ (conNames typ)
+    go Map.empty $ foldr (\v -> TH.ForallT [TH.PlainTV v] []) typ (nub (conNames typ))
     where
     go env (TH.ForallT [] cx body)
         | not (null cx) = fail "Typeclass contexts are not yet supported"
