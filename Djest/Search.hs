@@ -5,7 +5,6 @@ module Djest.Search (search, deduce) where
 import qualified Djest.Solver as S
 import qualified Djest.Compiler as C
 import qualified Data.Map as Map
-import qualified Djest.Syntax as Syn
 import qualified Language.Haskell.TH as TH
 import qualified Language.Haskell.TH.Syntax as TH
 import qualified Data.Map as Map
