@@ -209,6 +209,10 @@ supply = do
 onMetaSubst :: (MetaSubst -> MetaSubst) -> SolverState -> SolverState
 onMetaSubst f s = s { metaSubst = f (metaSubst s) }
 
+-- We need a principled approach so that we always view a type through the
+-- metasubst lens, without doing too much extra work.  Our substWhnf's are
+-- spuriously placed around this code and if we missed one there could be a
+-- very subtle problem.
 type MetaSubst = Map.Map MetaVar Type
 type Env = Map.Map Type [ExpVar]
 
